@@ -3,7 +3,7 @@ package com.stellarcoders;
 
 public class ConstAreas {
 
-    private static final float buffer = 0.10f; //KOZから離れるバッファ
+    private static final float buffer = 0.15f; //KOZから離れるバッファ
     public static final Area[] KOZs = {
             new Area(10.87f - buffer, -9.5f - buffer, 4.27f - buffer, 11.6f + buffer, -9.45f + buffer, 4.97f + buffer),
             new Area(10.25f - buffer, -9.5f - buffer, -4.97f - buffer, -10.87f + buffer, -9.45f + buffer, -5.62f + buffer),

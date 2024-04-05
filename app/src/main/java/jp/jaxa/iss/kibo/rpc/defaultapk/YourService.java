@@ -8,6 +8,7 @@ import com.stellarcoders.ConstQuaternions;
 import com.stellarcoders.utils.Dijkstra3D;
 import com.stellarcoders.utils.Utils;
 
+import android.annotation.SuppressLint;
 import android.util.Log;
 
 import org.opencv.core.Mat;
@@ -24,6 +25,7 @@ import jp.jaxa.iss.kibo.rpc.api.KiboRpcService;
  */
 
 public class YourService extends KiboRpcService {
+    @SuppressLint("DefaultLocale")
     @Override
     protected void runPlan1(){
         // write your plan 1 here
@@ -40,7 +42,7 @@ public class YourService extends KiboRpcService {
 
             // Get a camera image.
             Mat image = api.getMatNavCam();
-
+            api.saveMatImage(image,String.format("Image%d.png",i));
             /* *********************************************************************** */
             /* Write your code to recognize type and number of items in the each area! */
             /* *********************************************************************** */
