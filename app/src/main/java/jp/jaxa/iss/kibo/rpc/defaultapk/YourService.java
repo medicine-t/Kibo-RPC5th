@@ -34,8 +34,6 @@ public class YourService extends KiboRpcService {
         ConstPoints pointData = new ConstPoints();
         ConstQuaternions quaternions = new ConstQuaternions();
 
-//        moveDijkstra(pointData.goal,quaternions.goal);
-
         //TODO: 移動順の最適化
         for(int i = 0;i < 4;i++){
             int index = i;
