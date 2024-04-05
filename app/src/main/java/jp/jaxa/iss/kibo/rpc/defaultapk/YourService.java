@@ -38,11 +38,16 @@ public class YourService extends KiboRpcService {
 
         //TODO: 移動順の最適化
         for(int i = 0;i < 4;i++){
-            moveDijkstra(pointData.points.get(i),quaternions.points.get(i));
-
+            int index = i;
+            Thread thread = new Thread(() -> { moveDijkstra(pointData.points.get(index),quaternions.points.get(index));});
+            thread.start();
             // Get a camera image.
-            Mat image = api.getMatNavCam();
-            api.saveMatImage(image,String.format("Image%d.png",i));
+            int cnt = 0;
+            while(thread.isAlive()) {
+                Mat image = api.getMatNavCam();
+                api.saveMatImage(image, String.format("Image%d-%d.png", i,cnt));
+                cnt++;
+            }
             /* *********************************************************************** */
             /* Write your code to recognize type and number of items in the each area! */
             /* *********************************************************************** */
