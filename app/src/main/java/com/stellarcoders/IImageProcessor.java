@@ -3,6 +3,8 @@ package com.stellarcoders;
 import java.util.ArrayList;
 import java.util.HashMap;
 
+import jp.jaxa.iss.kibo.rpc.api.KiboRpcApi;
+
 public interface IImageProcessor {
 
     /**
@@ -10,5 +12,5 @@ public interface IImageProcessor {
      * ClassNum / Quantity
      * @return
      */
-    HashMap<Integer, Integer> detectItems() ;
+    HashMap<String, Integer> detectItems(KiboRpcApi api) ;
 }
