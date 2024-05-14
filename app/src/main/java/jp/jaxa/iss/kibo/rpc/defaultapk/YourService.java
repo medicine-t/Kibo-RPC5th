@@ -13,6 +13,8 @@ import com.stellarcoders.utils.Utils;
 import android.annotation.SuppressLint;
 import android.util.Log;
 
+import org.opencv.core.Mat;
+
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -67,18 +69,27 @@ public class YourService extends KiboRpcService {
 
         // Get a camera image.
         int cnt = 0;
-        IImageProcessor imageProcessor = new ImageProcessor();
+        ImageProcessor imageProcessor = new ImageProcessor();
         while (thread.isAlive()) {
             api.saveMatImage(Utils.calibratedNavCam(api), String.format("Image%d.png",cnt));
-            HashMap<String, Integer> result = imageProcessor.detectItems(this.api);
-            List<Integer> ids = Utils.searchMarker(api.getMatNavCam());
-
-            int labelCount = result.keySet().size();
-            if (labelCount == 1 && ids.size() == 1){
-                for(Map.Entry<String,Integer> entry : result.entrySet()) {
-                    api.setAreaInfo(ids.get(0) - 100,entry.getKey(),entry.getValue());
-                }
+            List<Mat> fields = imageProcessor.extractTargetField(api);
+            for (Mat field : fields){
+                api.saveMatImage(field, String.format("ExtractImage_%d.png",cnt));
             }
+            try {
+                Thread.sleep(3000);
+            } catch (InterruptedException e) {
+                throw new RuntimeException(e);
+            }
+//            HashMap<String, Integer> result = imageProcessor.detectItems(this.api);
+//            List<Integer> ids = Utils.searchMarker(api.getMatNavCam());
+//
+//            int labelCount = result.keySet().size();
+//            if (labelCount == 1 && ids.size() == 1){
+//                for(Map.Entry<String,Integer> entry : result.entrySet()) {
+//                    api.setAreaInfo(ids.get(0) - 100,entry.getKey(),entry.getValue());
+//                }
+//            }
             cnt++;
         }
 
