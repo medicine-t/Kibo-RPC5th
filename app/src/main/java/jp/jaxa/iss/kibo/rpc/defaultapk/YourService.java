@@ -5,7 +5,6 @@ import com.stellarcoders.CheckPoints;
 import com.stellarcoders.ConstAreas;
 import com.stellarcoders.ConstPoints;
 import com.stellarcoders.ConstQuaternions;
-import com.stellarcoders.IImageProcessor;
 import com.stellarcoders.ImageProcessor;
 import com.stellarcoders.utils.Dijkstra3D;
 import com.stellarcoders.utils.Utils;
@@ -21,6 +20,7 @@ import java.util.List;
 import java.util.Map;
 
 import gov.nasa.arc.astrobee.Kinematics;
+import gov.nasa.arc.astrobee.Result;
 import gov.nasa.arc.astrobee.types.Point;
 import gov.nasa.arc.astrobee.types.Quaternion;
 import jp.jaxa.iss.kibo.rpc.api.KiboRpcService;
@@ -51,49 +51,66 @@ public class YourService extends KiboRpcService {
             /* Write your code to recognize type and number of items in the each area! */
             /* *********************************************************************** */
 
-            // When you recognize items, let’s set the type and number.
-            api.setAreaInfo(1, "item_name", 1);
-
             // When you move to the front of the astronaut, report the rounding completion.
             api.reportRoundingCompletion();
             try {
-                Thread.sleep(1000);
+                Thread.sleep(1000 * 60);
             } catch (InterruptedException e) {
-                throw new RuntimeException(e);
+                Log.w("StellarCoders",e);
             }
 
             //        moveDijkstra(pointData.goal, quaternions.goal);
-            api.notifyRecognitionItem();
+
         });
         thread.start();
 
         // Get a camera image.
         int cnt = 0;
         ImageProcessor imageProcessor = new ImageProcessor();
+        HashMap<Integer,String> itemMapping = new HashMap<>();
+        HashMap<String,Integer> keyMapping = new HashMap<>();
+        boolean alive = true;
         while (thread.isAlive()) {
-            api.saveMatImage(Utils.calibratedNavCam(api), String.format("Image%d.png",cnt));
+//            api.saveMatImage(Utils.calibratedNavCam(api), String.format("Image%d.png",cnt));
             List<Mat> fields = imageProcessor.extractTargetField(api);
             for (Mat field : fields){
                 api.saveMatImage(field, String.format("ExtractImage_%d.png",cnt));
+                HashMap<String, Integer> result = imageProcessor.detectItems(field);
+                List<Integer> ids = Utils.searchMarker(field);
+                int labelCount = result.keySet().size();
+                if (labelCount == 1 && ids.size() == 1){
+                    for(Map.Entry<String,Integer> entry : result.entrySet()) {
+                        itemMapping.put(ids.get(0) - 100, entry.getKey());
+                        keyMapping.put(entry.getKey(),ids.get(0) - 100);
+                        if(ids.get(0) - 100 != 0) {
+                            api.setAreaInfo(ids.get(0) - 100, entry.getKey(), entry.getValue());
+                        } else {
+                            api.notifyRecognitionItem();
+                            thread.interrupt();
+                            alive = false;
+                        }
+
+                    }
+                }
             }
-            try {
-                Thread.sleep(3000);
-            } catch (InterruptedException e) {
-                throw new RuntimeException(e);
-            }
-//            HashMap<String, Integer> result = imageProcessor.detectItems(this.api);
-//            List<Integer> ids = Utils.searchMarker(api.getMatNavCam());
-//
-//            int labelCount = result.keySet().size();
-//            if (labelCount == 1 && ids.size() == 1){
-//                for(Map.Entry<String,Integer> entry : result.entrySet()) {
-//                    api.setAreaInfo(ids.get(0) - 100,entry.getKey(),entry.getValue());
-//                }
-//            }
+            if (!alive)break;
             cnt++;
         }
 
+//        // determine what keys is labeled
+//        for(Map.Entry<Integer, String> entry : itemMapping.entrySet()) {
+//            // 最頻値を出す
+//            ArrayList<Integer> result = areaInfo.get(entry.getKey());
+//            HashMap<Integer,Integer> tmp = new HashMap<>();
+//            for (Integer ret:result ) {
+//                tmp.put(tmp.getOrDefault(ret, 0) + 1);
+//            }
+//
+//        }
+
+        Log.i("StellarCoders","move to goal");
         api.saveMatImage(Utils.calibratedNavCam(api), String.format("Image%d.png",cnt));
+        if(itemMapping.get(0) != null || keyMapping.get(itemMapping.get(0)) != null) moveDijkstra(pointData.points.get(keyMapping.get(itemMapping.get(0))),quaternions.points.get(keyMapping.get(itemMapping.get(0))));
         api.takeTargetItemSnapshot();
     }
 
@@ -166,7 +183,7 @@ public class YourService extends KiboRpcService {
         for (int i = 0; i < concatenated.size(); i++) {
             try {
                 dist += Utils.distance3DSquare(currentPos, concatenated.get(i));
-                api.moveTo(concatenated.get(i), Utils.QuatSlerp(kine.getOrientation(), q, Math.min(1, dist / totalDistance)), true);
+                Result result = api.moveTo(concatenated.get(i), Utils.QuatSlerp(kine.getOrientation(), q, Math.min(1, dist / totalDistance)), true);
                 currentPos = concatenated.get(i);
             } catch (Error e) {
                 Log.e("StellarCoders", e.getMessage());

@@ -5,12 +5,18 @@ import android.app.Application;
 import android.graphics.Bitmap;
 import android.content.Context;
 import android.graphics.BitmapFactory;
+import android.graphics.Canvas;
+import android.graphics.Color;
+import android.graphics.Paint;
+import android.graphics.RectF;
 import android.util.Log;
 
 import com.stellarcoders.utils.Utils;
 
 import org.tensorflow.lite.support.image.TensorImage;
 import org.tensorflow.lite.task.core.BaseOptions;
+import org.tensorflow.lite.task.vision.classifier.Classifications;
+import org.tensorflow.lite.task.vision.classifier.ImageClassifier;
 import org.tensorflow.lite.task.vision.detector.Detection;
 import org.tensorflow.lite.task.vision.detector.ObjectDetector;
 
@@ -41,6 +47,7 @@ public class ImageProcessor extends Application implements  IImageProcessor {
      */
 
     ObjectDetector objectDetector = null;
+    ImageClassifier imageClassifier = null;
     public ImageProcessor() {}
 
     private void init() {
@@ -51,31 +58,85 @@ public class ImageProcessor extends Application implements  IImageProcessor {
                 .setScoreThreshold(0.3f)
                 .setBaseOptions(baseOptions)
                 .build();
+        ImageClassifier.ImageClassifierOptions classifierOptions = ImageClassifier.ImageClassifierOptions.builder()
+                .setBaseOptions(baseOptions)
+                .setMaxResults(1)
+                .build();
         try {
-            objectDetector = createFromFileAndOptions(GlobalContext.getInstance(),"model.tflite",options);
+            objectDetector = createFromFileAndOptions(GlobalContext.getInstance(),"model_detector.tflite",options);
+            imageClassifier = ImageClassifier.createFromFileAndOptions(GlobalContext.getInstance(),"model_classifier.tflite",classifierOptions);
         } catch (IOException e) {
             throw new RuntimeException("Failed to make ObjectDetector",e);
         }
     }
 
-    public HashMap<String, Integer> detectItems(KiboRpcApi api) {
+    private final int extractedWidth = 270;
+    private final int extractedHeight = 150;
+
+    public static Bitmap cropAndResizeBitmap(Bitmap bitmap, RectF rectF, int targetWidth, int targetHeight) {
+        // RectFを元にビットマップをクロップ
+        Bitmap croppedBitmap = Bitmap.createBitmap(
+                bitmap,
+                (int) Math.max(0,rectF.left),
+                (int) Math.max(0,rectF.top),
+                (int) rectF.width(),
+                (int) rectF.height()
+        );
+
+        // アスペクト比を保ったまま指定サイズにリサイズ
+        float aspectRatio = (float) croppedBitmap.getWidth() / (float) croppedBitmap.getHeight();
+        int width, height;
+        if (croppedBitmap.getWidth() > croppedBitmap.getHeight()) {
+            width = targetWidth;
+            height = Math.round(targetWidth / aspectRatio);
+        } else {
+            height = targetHeight;
+            width = Math.round(targetHeight * aspectRatio);
+        }
+
+        Bitmap scaledBitmap = Bitmap.createScaledBitmap(croppedBitmap, width, height, true);
+
+        // 余った部分を白で埋める
+        Bitmap finalBitmap = Bitmap.createBitmap(targetWidth, targetHeight, Bitmap.Config.ARGB_8888);
+        Canvas canvas = new Canvas(finalBitmap);
+        canvas.drawColor(Color.GRAY);
+
+        // 中央に配置
+        float left = (targetWidth - width) / 2f;
+        float top = (targetHeight - height) / 2f;
+        canvas.drawBitmap(scaledBitmap, left, top, new Paint());
+
+        return finalBitmap;
+    }
+
+    public HashMap<String, Integer> detectItems(Mat matImage) {
         Log.i("StellarCoders[ImageProcessor::detectItems]","Object Detector Called");
         if (objectDetector == null) {
             this.init();
         }
         HashMap<String,Integer> result = new HashMap<>();
-        Bitmap bitmapImage = Bitmap.createBitmap(1280,960,Bitmap.Config.ARGB_8888);
-        org.opencv.android.Utils.matToBitmap(Utils.calibratedNavCam(api),bitmapImage);
+        Bitmap bitmapImage = Bitmap.createBitmap(extractedWidth,extractedHeight,Bitmap.Config.ARGB_8888);
+        org.opencv.android.Utils.matToBitmap(matImage,bitmapImage);
 
         TensorImage image = TensorImage.fromBitmap(bitmapImage);
         List<Detection> detectResult = objectDetector.detect(image);
-        Log.i("[StellarCoders]",detectResult.toString());
+
 
         for (Detection detect: detectResult) {
-            String label = detect.getCategories().get(0).getLabel();
-            Integer prevVal = result.get(label) != null ? result.get(label) : 0;
-            result.put(label,prevVal + 1);
+            if (detect.getBoundingBox().left > 200) {
+                continue;
+            }
+
+            Bitmap croppedImage = cropAndResizeBitmap(bitmapImage,detect.getBoundingBox(),224,224);
+            TensorImage croppedTensorImage = TensorImage.fromBitmap(croppedImage);
+            List<Classifications> classificateResult = imageClassifier.classify(croppedTensorImage);
+            for(Classifications classifications: classificateResult) {
+                String label = classifications.getCategories().get(0).getLabel();
+                int prevVal = result.get(label) != null ? result.get(label) : 0;
+                result.put(label,prevVal + 1);
+            }
         }
+        Log.i("[StellarCoders]",result.toString());
         return result;
     }
 
@@ -130,12 +191,28 @@ public class ImageProcessor extends Application implements  IImageProcessor {
             Mat undistortedImage = new Mat();
             Calib3d.undistort(image, undistortedImage, cameraMatrix, distCoeffs);
 
-            int newWidth = 270;
-            int newHeight = 150;
+            int newWidth = extractedWidth;
+            int newHeight = extractedHeight;
             for (Map.Entry<Integer, List<Point>> entry : points.entrySet()) {
                 int id = entry.getKey();
                 List<Point> pointList = entry.getValue();
                 MatOfPoint2f srcPoints = new MatOfPoint2f(pointList.toArray(new Point[0]));
+
+                // Check if point in image area
+                int width = 1280;
+                int height = 960;
+                boolean usable = true;
+                for(Point point : entry.getValue()){
+                    if (point.x < 0 || point.x >= width) {
+                        usable = false;
+                    }else if (point.y < 0 || point.y >= height) {
+                        usable = false;
+                    }
+                }
+
+                if (!usable) {
+                    continue;
+                }
 
                 // Perspective transformation
                 MatOfPoint2f dstPoints = new MatOfPoint2f(
