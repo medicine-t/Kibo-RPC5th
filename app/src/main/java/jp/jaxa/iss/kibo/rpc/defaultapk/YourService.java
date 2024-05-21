@@ -81,8 +81,8 @@ public class YourService extends KiboRpcService {
                 if (labelCount == 1 && ids.size() == 1){
                     for(Map.Entry<String,Integer> entry : result.entrySet()) {
                         itemMapping.put(ids.get(0) - 100, entry.getKey());
-                        keyMapping.put(entry.getKey(),ids.get(0) - 100);
                         if(ids.get(0) - 100 != 0) {
+                            keyMapping.put(entry.getKey(),ids.get(0) - 100);
                             api.setAreaInfo(ids.get(0) - 100, entry.getKey(), entry.getValue());
                         } else {
                             api.notifyRecognitionItem();
@@ -110,7 +110,13 @@ public class YourService extends KiboRpcService {
 
         Log.i("StellarCoders","move to goal");
         api.saveMatImage(Utils.calibratedNavCam(api), String.format("Image%d.png",cnt));
-        if(itemMapping.get(0) != null || keyMapping.get(itemMapping.get(0)) != null) moveDijkstra(pointData.points.get(keyMapping.get(itemMapping.get(0))),quaternions.points.get(keyMapping.get(itemMapping.get(0))));
+        Log.i("StellarCoders",String.format("%s,%s",keyMapping,itemMapping));
+        if(itemMapping.get(0) != null || keyMapping.get(itemMapping.get(0)) != null) {
+            moveDijkstra(
+                    pointData.points.get(keyMapping.get(itemMapping.get(0)) - 1),
+                    quaternions.points.get(keyMapping.get(itemMapping.get(0)) - 1)
+            );
+        }
         api.takeTargetItemSnapshot();
     }
 
