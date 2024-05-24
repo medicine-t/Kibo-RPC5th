@@ -97,17 +97,6 @@ public class YourService extends KiboRpcService {
             cnt++;
         }
 
-//        // determine what keys is labeled
-//        for(Map.Entry<Integer, String> entry : itemMapping.entrySet()) {
-//            // 最頻値を出す
-//            ArrayList<Integer> result = areaInfo.get(entry.getKey());
-//            HashMap<Integer,Integer> tmp = new HashMap<>();
-//            for (Integer ret:result ) {
-//                tmp.put(tmp.getOrDefault(ret, 0) + 1);
-//            }
-//
-//        }
-
         Log.i("StellarCoders","move to goal");
         api.saveMatImage(Utils.calibratedNavCam(api), String.format("Image%d.png",cnt));
         Log.i("StellarCoders",String.format("%s,%s",keyMapping,itemMapping));

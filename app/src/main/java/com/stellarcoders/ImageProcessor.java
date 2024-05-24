@@ -46,7 +46,7 @@ public class ImageProcessor extends Application implements  IImageProcessor {
      * @return
      */
 
-    ObjectDetector objectDetector = null;
+//    ObjectDetector objectDetector = null;
     ImageClassifier imageClassifier = null;
     public ImageProcessor() {}
 
@@ -54,17 +54,17 @@ public class ImageProcessor extends Application implements  IImageProcessor {
         BaseOptions baseOptions = BaseOptions.builder()
                 .setNumThreads(1)
                 .build();
-        ObjectDetectorOptions options = ObjectDetectorOptions.builder()
-                .setScoreThreshold(0.3f)
-                .setBaseOptions(baseOptions)
-                .build();
+//        ObjectDetectorOptions options = ObjectDetectorOptions.builder()
+//                .setScoreThreshold(0.3f)
+//                .setBaseOptions(baseOptions)
+//                .build();
         ImageClassifier.ImageClassifierOptions classifierOptions = ImageClassifier.ImageClassifierOptions.builder()
                 .setBaseOptions(baseOptions)
                 .setMaxResults(1)
                 .build();
         try {
-            objectDetector = createFromFileAndOptions(GlobalContext.getInstance(),"model_detector.tflite",options);
-            imageClassifier = ImageClassifier.createFromFileAndOptions(GlobalContext.getInstance(),"model_classifier.tflite",classifierOptions);
+//            objectDetector = createFromFileAndOptions(GlobalContext.getInstance(),"model_detector.tflite",options);
+            imageClassifier = ImageClassifier.createFromFileAndOptions(GlobalContext.getInstance(),"model_quantized.classifier.tflite",classifierOptions);
         } catch (IOException e) {
             throw new RuntimeException("Failed to make ObjectDetector",e);
         }
@@ -109,36 +109,63 @@ public class ImageProcessor extends Application implements  IImageProcessor {
         return finalBitmap;
     }
 
+    @Override
     public HashMap<String, Integer> detectItems(Mat matImage) {
         Log.i("StellarCoders[ImageProcessor::detectItems]","Object Detector Called");
-        if (objectDetector == null) {
+        if (imageClassifier == null) {
             this.init();
         }
+        // crop [0,0,200,170]
+        Rect cropRegion = new Rect(
+                0,0,200,150
+        );
+        matImage = matImage.submat(cropRegion);
+
         HashMap<String,Integer> result = new HashMap<>();
-        Bitmap bitmapImage = Bitmap.createBitmap(extractedWidth,extractedHeight,Bitmap.Config.ARGB_8888);
+        Bitmap bitmapImage = Bitmap.createBitmap(200,150,Bitmap.Config.ARGB_8888);
         org.opencv.android.Utils.matToBitmap(matImage,bitmapImage);
 
         TensorImage image = TensorImage.fromBitmap(bitmapImage);
-        List<Detection> detectResult = objectDetector.detect(image);
-
-
-        for (Detection detect: detectResult) {
-            if (detect.getBoundingBox().left > 200) {
-                continue;
-            }
-
-            Bitmap croppedImage = cropAndResizeBitmap(bitmapImage,detect.getBoundingBox(),224,224);
-            TensorImage croppedTensorImage = TensorImage.fromBitmap(croppedImage);
-            List<Classifications> classificateResult = imageClassifier.classify(croppedTensorImage);
-            for(Classifications classifications: classificateResult) {
-                String label = classifications.getCategories().get(0).getLabel();
-                int prevVal = result.get(label) != null ? result.get(label) : 0;
-                result.put(label,prevVal + 1);
-            }
-        }
+        List<Classifications> classificationResult = imageClassifier.classify(image);
+        String label = classificationResult.get(0).getCategories().get(0).getLabel();
+        Log.i("[StellarCoders]::ClassificationResult",String.format("label: %s, prob: %f",label,classificationResult.get(0).getCategories().get(0).getScore()));
+        int numObj = ImageSegmentation.segmentImage(matImage);
+        result.put(label,numObj);
+        Log.i("[StellarCoders]::ClassificationResult",String.format("ImageSegmentation.segmentImage: %d",numObj));
         Log.i("[StellarCoders]",result.toString());
         return result;
     }
+
+//    public HashMap<String, Integer> _detectItems(Mat matImage) {
+//        Log.i("StellarCoders[ImageProcessor::detectItems]","Object Detector Called");
+//        if (objectDetector == null) {
+//            this.init();
+//        }
+//        HashMap<String,Integer> result = new HashMap<>();
+//        Bitmap bitmapImage = Bitmap.createBitmap(extractedWidth,extractedHeight,Bitmap.Config.ARGB_8888);
+//        org.opencv.android.Utils.matToBitmap(matImage,bitmapImage);
+//
+//        TensorImage image = TensorImage.fromBitmap(bitmapImage);
+//        List<Detection> detectResult = objectDetector.detect(image);
+//
+//
+//        for (Detection detect: detectResult) {
+//            if (detect.getBoundingBox().left > 200) {
+//                continue;
+//            }
+//
+//            Bitmap croppedImage = cropAndResizeBitmap(bitmapImage,detect.getBoundingBox(),224,224);
+//            TensorImage croppedTensorImage = TensorImage.fromBitmap(croppedImage);
+//            List<Classifications> classificateResult = imageClassifier.classify(croppedTensorImage);
+//            for(Classifications classifications: classificateResult) {
+//                String label = classifications.getCategories().get(0).getLabel();
+//                int prevVal = result.get(label) != null ? result.get(label) : 0;
+//                result.put(label,prevVal + 1);
+//            }
+//        }
+//        Log.i("[StellarCoders]",result.toString());
+//        return result;
+//    }
 
     public List<Mat> extractTargetField(KiboRpcApi api) {
         Mat image = api.getMatNavCam();
@@ -176,7 +203,7 @@ public class ImageProcessor extends Application implements  IImageProcessor {
                 localPoints.put(0, 0, new float[]{(3.75f - 27) / 100, 3.75f / 100, 0});
                 localPoints.put(1, 0, new float[]{(3.75f - 27) / 100, (3.75f - 15) / 100, 0});
                 localPoints.put(2, 0, new float[]{3.75f / 100, 3.75f / 100, 0});
-                localPoints.put(3, 0, new float[]{3.75f / 100, (3.75f - 15) / 100, 0});
+                localPoints.put(3, 0, new float[]{3.75f  / 100, (3.75f - 15) / 100, 0});
 
                 List<Point> pointList = new ArrayList<>();
                 for (int j = 0; j < localPoints.rows(); j++) {
