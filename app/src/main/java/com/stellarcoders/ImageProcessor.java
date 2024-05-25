@@ -115,7 +115,7 @@ public class ImageProcessor extends Application implements  IImageProcessor {
         if (imageClassifier == null) {
             this.init();
         }
-        // crop [0,0,200,170]
+        // crop [0,0,200,150]
         Rect cropRegion = new Rect(
                 0,0,200,150
         );

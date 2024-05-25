@@ -26,7 +26,7 @@ public class ImageSegmentation {
 
         // 二値化
         Mat binary = new Mat();
-        Imgproc.threshold(gray, binary, 127, 255, Imgproc.THRESH_BINARY_INV);
+        Imgproc.threshold(gray, binary, 100, 255, Imgproc.THRESH_BINARY_INV);
 
         // 輪郭を検出
         Mat hierarchy = new Mat();

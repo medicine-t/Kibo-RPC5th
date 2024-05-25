@@ -15,7 +15,9 @@ import org.opencv.imgproc.Imgproc;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Vector;
 
 import gov.nasa.arc.astrobee.types.Point;
@@ -127,6 +129,28 @@ public class Utils {
         return img;
     }
 
+    // 最頻値を取得するメソッド
+    public static Integer getMode(ArrayList<Integer> list) {
+        HashMap<Integer, Integer> frequencyMap = new HashMap<>();
+
+        // 各要素の出現回数をカウント
+        for (Integer num : list) {
+            frequencyMap.put(num, frequencyMap.getOrDefault(num, 0) + 1);
+        }
+
+        // 最頻値を決定
+        Integer mode = null;
+        int maxCount = -1;
+        for (Map.Entry<Integer, Integer> entry : frequencyMap.entrySet()) {
+            if (entry.getValue() > maxCount) {
+                maxCount = entry.getValue();
+                mode = entry.getKey();
+            }
+        }
+
+        return mode;
+    }
+
     public static Mat drawMarkerPoseEstimation(KiboRpcApi api){
         double[][] camStatistics = api.getNavCamIntrinsics();
         double[] camMtx = camStatistics[0];
@@ -163,6 +187,7 @@ public class Utils {
     }
 
     public static Vector3 getDiffFromCam(KiboRpcApi api,int targetId){
+        Log.i("StellarCoders::getDiffCam","called");
         double[][] biasMarker = {
                 {-0.1,+0.0375,0},
                 {0.1,+0.0375,0},
@@ -197,23 +222,24 @@ public class Utils {
 
         ArrayList<Integer> ids = new ArrayList<>();
         for (int i = 0; i < markerIds.size(0); i++) {
-            ids.add((int) markerIds.get(i,0)[0]);
+            ids.add((int) markerIds.get(i,0)[0] - 100 - 1);
         }
-        Log.i("StellarCoders",String.format("Detected : %s",ids));
+        Log.i("StellarCoders",String.format("Detected : %s, targetId: %s",ids,targetId));
         if(ids.size() == 0) return new Vector3(0,0,0);
 
         Vector3 target = new Vector3(0,0,0);
+        Log.i("StellarCoders", String.format("ids.size(): %d, rvecs.height(): %d",ids.size(),rvecs.height()));
         for (int i = 0; i < Math.min(ids.size(),rvecs.height()); i++) {
-            if((ids.get(i) - 1)/ 4 != targetId)continue;
+            if(ids.get(i)!= targetId)continue;
             double[] relationalTarget = new double[]{0,0,0};
             relationalTarget = tvecs.get(i,0);
             //TODO: ここの座標がシミュレーターから推察できる結果とズレているので調査
             Log.i("StellarCoders",String.format("UnBiased %s", Arrays.toString(relationalTarget)));
-            relationalTarget[0] += biasMarker[(ids.get(i) - 1 ) % 4][0];
-            relationalTarget[1] += biasMarker[(ids.get(i) - 1 ) % 4][1];
-            relationalTarget[2] += biasMarker[(ids.get(i) - 1 ) % 4][2];
+            relationalTarget[0] += biasMarker[0][0];
+            relationalTarget[1] += biasMarker[0][1];
+            relationalTarget[2] += biasMarker[0][2];
             Log.i("StellarCoders",String.format("Biased %s", Arrays.toString(relationalTarget)));
-            target = target.add(new Vector3(relationalTarget[0] - cam2laser.getY(),(relationalTarget[1] - cam2laser.getZ()),0));
+            target = target.add(new Vector3(relationalTarget[0],(relationalTarget[1]),0));
         }
         Vector3 v = target.prod(1.0 / rvecs.height());
         Log.i("StellarCoders",String.format("Average diffs : %.3f %.3f %.3f",v.getX(),v.getY(),v.getZ()));
@@ -224,6 +250,7 @@ public class Utils {
         double minimum_move = 0.1;
         //TODO:  最小移動距離になるようにz方向の移動距離を操作するという案
         if(nx * nx + ny * ny <= 0.03 * 0.03){
+            Log.i("StellarCoders:Util:s252","position almost satisfy target");
             return new Vector3(0,0,0);
         }
         //if(0.01 * 0.01 <= nx * nx + ny * ny && nx * nx + ny * ny <= minimum_move * minimum_move){

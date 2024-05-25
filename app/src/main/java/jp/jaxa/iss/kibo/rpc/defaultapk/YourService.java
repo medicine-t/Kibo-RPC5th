@@ -8,6 +8,7 @@ import com.stellarcoders.ConstQuaternions;
 import com.stellarcoders.ImageProcessor;
 import com.stellarcoders.utils.Dijkstra3D;
 import com.stellarcoders.utils.Utils;
+import com.stellarcoders.utils.Vector3;
 
 import android.annotation.SuppressLint;
 import android.util.Log;
@@ -37,6 +38,7 @@ public class YourService extends KiboRpcService {
         // write your plan 1 here
         api.startMission();
 
+        // ゴールまで移動してそれぞれのターゲットを認識する
         ConstPoints pointData = new ConstPoints();
         ConstQuaternions quaternions = new ConstQuaternions();
         Thread thread = new Thread(() -> {
@@ -45,22 +47,6 @@ public class YourService extends KiboRpcService {
                 int index = i;
                 moveDijkstra(pointData.points.get(index), quaternions.points.get(index));
             }
-            // データセット集める用
-            moveDijkstra(pointData.goal, quaternions.goal);
-            /* *********************************************************************** */
-            /* Write your code to recognize type and number of items in the each area! */
-            /* *********************************************************************** */
-
-            // When you move to the front of the astronaut, report the rounding completion.
-            api.reportRoundingCompletion();
-            try {
-                Thread.sleep(1000 * 60);
-            } catch (InterruptedException e) {
-                Log.w("StellarCoders",e);
-            }
-
-            //        moveDijkstra(pointData.goal, quaternions.goal);
-
         });
         thread.start();
 
@@ -69,9 +55,52 @@ public class YourService extends KiboRpcService {
         ImageProcessor imageProcessor = new ImageProcessor();
         HashMap<Integer,String> itemMapping = new HashMap<>();
         HashMap<String,Integer> keyMapping = new HashMap<>();
-        boolean alive = true;
+
+        HashMap<String,ArrayList<Integer>> detectionResult = new HashMap<>();
+
         while (thread.isAlive()) {
-//            api.saveMatImage(Utils.calibratedNavCam(api), String.format("Image%d.png",cnt));
+            List<Mat> fields = imageProcessor.extractTargetField(api);
+            for (Mat field : fields){
+                if(cnt % 10 == 0)api.saveMatImage(field, String.format("ExtractImage_%d.png",cnt));
+                HashMap<String, Integer> result = imageProcessor.detectItems(field);
+                List<Integer> ids = Utils.searchMarker(field);
+                int labelCount = result.keySet().size();
+                if (labelCount == 1 && ids.size() == 1){
+                    for(Map.Entry<String,Integer> entry : result.entrySet()) {
+                        itemMapping.put(ids.get(0) - 100, entry.getKey());
+                        if(ids.get(0) - 100 != 0) {
+                            keyMapping.put(entry.getKey(),ids.get(0) - 100);
+                            ArrayList<Integer> array = detectionResult.getOrDefault(entry.getKey(),new ArrayList<>());
+                            array.add(entry.getValue());
+                            detectionResult.put(entry.getKey(),array);
+                        }
+                    }
+                }
+            }
+            cnt++;
+        }
+        // 各キーについて最頻値を出す
+        // 報告
+        for(Map.Entry<String,ArrayList<Integer>> entry: detectionResult.entrySet()) {
+            int id = keyMapping.getOrDefault(entry.getKey(),1);
+            // 最頻値
+            int mode = Utils.getMode(entry.getValue());
+            api.setAreaInfo(id,entry.getKey(), mode);
+        }
+        if(thread.isAlive()) ;thread.interrupt();
+        // 報告
+        Thread moveToAstronaut = new Thread(() -> {
+            moveDijkstra(pointData.goal, quaternions.goal);
+            api.reportRoundingCompletion();
+            try {
+                Thread.sleep(1000 * 60 * 2);
+            }catch (InterruptedException e) {
+                Log.i("StellarCoders","interrupted (to astronaut)");
+            }
+        });
+        moveToAstronaut.start();
+        boolean alive = true;
+        while (moveToAstronaut.isAlive()){
             List<Mat> fields = imageProcessor.extractTargetField(api);
             for (Mat field : fields){
                 api.saveMatImage(field, String.format("ExtractImage_%d.png",cnt));
@@ -81,30 +110,38 @@ public class YourService extends KiboRpcService {
                 if (labelCount == 1 && ids.size() == 1){
                     for(Map.Entry<String,Integer> entry : result.entrySet()) {
                         itemMapping.put(ids.get(0) - 100, entry.getKey());
-                        if(ids.get(0) - 100 != 0) {
-                            keyMapping.put(entry.getKey(),ids.get(0) - 100);
-                            api.setAreaInfo(ids.get(0) - 100, entry.getKey(), entry.getValue());
-                        } else {
+                        if(ids.get(0) - 100 == 0) {
                             api.notifyRecognitionItem();
-                            thread.interrupt();
+                            moveToAstronaut.interrupt();
                             alive = false;
+                            break;
                         }
-
                     }
                 }
             }
-            if (!alive)break;
-            cnt++;
+            if(!alive)break;
         }
+
+        // ゴールの目的地へ移動
 
         Log.i("StellarCoders","move to goal");
         api.saveMatImage(Utils.calibratedNavCam(api), String.format("Image%d.png",cnt));
         Log.i("StellarCoders",String.format("%s,%s",keyMapping,itemMapping));
-        if(itemMapping.get(0) != null || keyMapping.get(itemMapping.get(0)) != null) {
+        if(itemMapping.get(0) != null && keyMapping.get(itemMapping.get(0)) != null) {
+            int targetIndex = keyMapping.get(itemMapping.get(0)) - 1;
+            // 大雑把な移動
             moveDijkstra(
-                    pointData.points.get(keyMapping.get(itemMapping.get(0)) - 1),
-                    quaternions.points.get(keyMapping.get(itemMapping.get(0)) - 1)
+                    pointData.points.get(targetIndex),
+                    quaternions.points.get(targetIndex)
             );
+
+            Vector3 rel = Utils.getDiffFromCam(api,targetIndex);
+            //Point currentPosition = api.getRobotKinematics().getPosition();
+            Log.i("StellarCoders",String.format("relative %.3f, %.3f, %.3f",rel.getX(),rel.getY(),rel.getZ()));
+            if (rel.getX() * rel.getX() + rel.getY() * rel.getY() + rel.getZ() * rel.getZ() > 0.01){
+                api.relativeMoveTo(new Point(rel.getX(),rel.getY(),rel.getZ()),quaternions.points.get(targetIndex),true);
+            }
+
         }
         api.takeTargetItemSnapshot();
     }
@@ -160,7 +197,7 @@ public class YourService extends KiboRpcService {
         return concatenated;
     }
 
-    int moveDijkstra(Point goal, Quaternion q) {
+    void moveDijkstra(Point goal, Quaternion q) {
         Kinematics kine = api.getRobotKinematics();
         Point currentPos = kine.getPosition();
         Log.i("StellarCoders", String.format("Current Pos %s", kine.getPosition().toString()));
@@ -182,13 +219,12 @@ public class YourService extends KiboRpcService {
                 currentPos = concatenated.get(i);
             } catch (Error e) {
                 Log.e("StellarCoders", e.getMessage());
-                return -1;
+                return;
             }
         }
 
         Log.i("StellarCoders", "Moved to Point");
         Log.i("StellarCoders", String.format("Current Pos %s", this.api.getRobotKinematics().getPosition().toString()));
-        return 0;
     }
 }
 

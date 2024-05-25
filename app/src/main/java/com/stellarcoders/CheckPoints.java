@@ -6,7 +6,7 @@ import gov.nasa.arc.astrobee.types.Point;
 
 public class CheckPoints {
     public final boolean[][][] checkPoints;
-    private final float length = 11.665f - 9.5f; //2.165 // Global:x_max - Global:x_min;
+    private final float length = 11.6f - 9.5f; //2.165 // Global:x_max - Global:x_min;
     private final float height = -6.0f - (-10.5f); //4.5 //y
     private final float depth =  5.57f - 4.02f;// 1.55 //z
 
