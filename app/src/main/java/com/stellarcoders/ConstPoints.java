@@ -19,6 +19,17 @@ public class ConstPoints {
         }
     };
 
+    public final ArrayList<Point> movePlan = new ArrayList<Point>() {
+        {
+            // 平面情報が与えられている。ひとまず中心をポイントとして扱う
+            add(new Point(10.689, -9.757, 4.813)); //Area1　(10.95,いいかんじ,5.195)
+            add(new Point (10.925,-8.875,4.813 + 0.0)); //Area2  (10.925,-8.875,4.48 + 0.0) // zがkiz外
+            add(new Point(10.925, -7.925, 4.813 + 0.0)); //Area3
+            add(new Point(10.698, -6.872, 4.945)); // Area4
+        }
+    };
+
+
     // 素のターゲット座標。このまま移動命令を出すと壁にめり込む
     public final ArrayList<Point> targets = new ArrayList<Point>() {
         {

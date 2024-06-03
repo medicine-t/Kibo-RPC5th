@@ -3,22 +3,17 @@ package com.stellarcoders;
 
 import android.app.Application;
 import android.graphics.Bitmap;
-import android.content.Context;
-import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.RectF;
 import android.util.Log;
-
-import com.stellarcoders.utils.Utils;
+import android.util.Pair;
 
 import org.tensorflow.lite.support.image.TensorImage;
 import org.tensorflow.lite.task.core.BaseOptions;
 import org.tensorflow.lite.task.vision.classifier.Classifications;
 import org.tensorflow.lite.task.vision.classifier.ImageClassifier;
-import org.tensorflow.lite.task.vision.detector.Detection;
-import org.tensorflow.lite.task.vision.detector.ObjectDetector;
 
 import java.io.IOException;
 import java.util.HashMap;
@@ -27,17 +22,13 @@ import java.util.List;
 import jp.jaxa.iss.kibo.rpc.api.KiboRpcApi;
 import jp.jaxa.iss.kibo.rpc.defaultapk.GlobalContext;
 
-import static org.tensorflow.lite.task.vision.detector.ObjectDetector.*;
 import org.opencv.core.*;
 import org.opencv.aruco.*;
 import org.opencv.calib3d.Calib3d;
-import org.opencv.imgcodecs.Imgcodecs;
 import org.opencv.imgproc.Imgproc;
 
 import java.util.ArrayList;
-import java.util.List;
 import java.util.Map;
-import java.util.HashMap;
 
 public class ImageProcessor extends Application implements  IImageProcessor {
     /**
@@ -167,34 +158,54 @@ public class ImageProcessor extends Application implements  IImageProcessor {
 //        return result;
 //    }
 
-    public List<Mat> extractTargetField(KiboRpcApi api) {
-        Mat image = api.getMatNavCam();
-        List<Mat> extractedImages = new ArrayList<>();
+    public List<Pair<Integer,Mat>> extractTargetField(KiboRpcApi api){
+        return extractTargetField(api,false);
+    }
+
+    public List<Pair<Integer,Mat>> extractTargetField(KiboRpcApi api, boolean back) {
+        Mat image = !back ? api.getMatNavCam() : api.getMatDockCam();
+        List<Pair<Integer, Mat>> extractedImages = new ArrayList<>();
 
         // カメラのキャリブレーションパラメータ
-        double[][] camStatistics = api.getNavCamIntrinsics();
+        double[][] camStatistics = !back ? api.getNavCamIntrinsics() : api.getDockCamIntrinsics();
         double[] camMtx = camStatistics[0];
         double[] dist = camStatistics[1];
-        Mat navCam = api.getMatNavCam();
         Mat cameraMatrix = new Mat(3,3, CvType.CV_64FC1);
         cameraMatrix.put(0,0,camMtx);
         Mat distCoeffs = new Mat(1,5,CvType.CV_64FC1);
         distCoeffs.put(0,0,dist);
 
+        // undistort だと端がかけるのでremapで歪みを治す
+        Mat newCameraMatrix = Calib3d.getOptimalNewCameraMatrix(cameraMatrix,distCoeffs, new Size(1280,960),1);
+        Mat map1 = new Mat();
+        Mat map2 = new Mat();
+        Calib3d.initUndistortRectifyMap(
+                cameraMatrix,
+                distCoeffs,
+                Mat.eye(new Size(3,3), CvType.CV_64FC1),
+                newCameraMatrix,
+                new Size(1280,960),
+                CvType.CV_32FC1,
+                map1,
+                map2
+                );
+        Mat undistortedImage = new Mat();
+        Imgproc.remap(image,undistortedImage,map1,map2,Imgproc.INTER_LINEAR);;
         // ARUCO辞書と検出器の設定
         Dictionary arucoDict = Aruco.getPredefinedDictionary(Aruco.DICT_5X5_250);
 
         // ARUCOマーカーの検出
         MatOfInt ids = new MatOfInt();
         List<Mat> corners = new ArrayList<>();
-        Aruco.detectMarkers(image, arucoDict, corners, ids);
+        Aruco.detectMarkers(undistortedImage, arucoDict, corners, ids);
+//        Aruco.drawDetectedMarkers(un_distortedImage,corners,ids);
 
         float markerLength = 0.05f;
         if (!ids.empty()) {
             // マーカーの位置と姿勢を推定
             Mat rvecs = new Mat();
             Mat tvecs = new Mat();
-            Aruco.estimatePoseSingleMarkers(corners, markerLength, cameraMatrix, distCoeffs, rvecs, tvecs);
+            Aruco.estimatePoseSingleMarkers(corners, markerLength, newCameraMatrix, Mat.zeros(1,5,CvType.CV_64FC1), rvecs, tvecs);
 
             Map<Integer, List<Point>> points = new HashMap<>();
             for (int i = 0; i < ids.rows(); i++) {
@@ -208,15 +219,16 @@ public class ImageProcessor extends Application implements  IImageProcessor {
                 List<Point> pointList = new ArrayList<>();
                 for (int j = 0; j < localPoints.rows(); j++) {
                     MatOfPoint2f imgPoints = new MatOfPoint2f();
-                    Calib3d.projectPoints(new MatOfPoint3f(localPoints.row(j)), rvecs.row(i), tvecs.row(i), cameraMatrix, new MatOfDouble(distCoeffs), imgPoints);
+                    Mat mat = Mat.zeros(1, 5, CvType.CV_64FC1);
+                    // Convert Mat to array of doubles
+                    double[] data = new double[(int) (mat.total() * mat.channels())];
+                    mat.get(0, 0, data);
+                    Calib3d.projectPoints(new MatOfPoint3f(localPoints.row(j)), rvecs.row(i), tvecs.row(i), newCameraMatrix, new MatOfDouble(data), imgPoints);
                     pointList.add(new Point(imgPoints.get(0, 0)));
+//                    Imgproc.circle(un_distortedImage, new Point(imgPoints.get(0, 0)), 5, new Scalar(0, 0, 255), -1);
                 }
                 points.put(id, pointList);
             }
-
-            // 歪み補正
-            Mat undistortedImage = new Mat();
-            Calib3d.undistort(image, undistortedImage, cameraMatrix, distCoeffs);
 
             int newWidth = extractedWidth;
             int newHeight = extractedHeight;
@@ -250,7 +262,9 @@ public class ImageProcessor extends Application implements  IImageProcessor {
                 Imgproc.warpPerspective(undistortedImage, plateImg, perspectiveTransform, new Size(newWidth, newHeight));
 
                 // Save or return the extracted image
-                extractedImages.add(plateImg);
+                Pair<Integer,Mat> ret = new Pair<>(id,plateImg);
+
+                extractedImages.add(ret);
             }
         } else {
             System.out.println("ARUCOマーカーが見つかりませんでした");

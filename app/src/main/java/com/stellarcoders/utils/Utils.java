@@ -10,6 +10,8 @@ import org.opencv.aruco.Dictionary;
 import org.opencv.calib3d.Calib3d;
 import org.opencv.core.CvType;
 import org.opencv.core.Mat;
+import org.opencv.core.MatOfInt;
+import org.opencv.core.Size;
 import org.opencv.imgproc.Imgproc;
 
 import java.util.ArrayList;
@@ -104,6 +106,37 @@ public class Utils {
         Mat undistorted = new Mat();
         Calib3d.undistort(navCam,undistorted,camMtxMat,distMat);
         return undistorted;
+    }
+
+    public static Mat calibratedExtNavCam(KiboRpcApi api) {
+        Mat image = api.getMatNavCam();
+        List<Mat> extractedImages = new ArrayList<>();
+
+        // カメラのキャリブレーションパラメータ
+        double[][] camStatistics = api.getNavCamIntrinsics() ;
+        double[] camMtx = camStatistics[0];
+        double[] dist = camStatistics[1];
+        Mat cameraMatrix = new Mat(3,3, CvType.CV_64FC1);
+        cameraMatrix.put(0,0,camMtx);
+        Mat distCoeffs = new Mat(1,5,CvType.CV_64FC1);
+        distCoeffs.put(0,0,dist);
+
+        Mat newCameraMatrix = Calib3d.getOptimalNewCameraMatrix(cameraMatrix,distCoeffs, new Size(1280,960),1);
+        Mat map1 = new Mat();
+        Mat map2 = new Mat();
+        Calib3d.initUndistortRectifyMap(
+                cameraMatrix,
+                distCoeffs,
+                Mat.eye(new Size(3,3), CvType.CV_64FC1),
+                newCameraMatrix,
+                new Size(1280,960),
+                CvType.CV_32FC1,
+                map1,
+                map2
+        );
+        Mat un_distortedImage = new Mat();
+        Imgproc.remap(image,un_distortedImage,map1,map2,Imgproc.INTER_LINEAR);
+        return  un_distortedImage;
     }
 
 
@@ -261,8 +294,8 @@ public class Utils {
         Log.i("StellarCoders",String.format("Un-Rotated Coordinate : %.3f %.3f %.3f",camPositionFixed.getX(),camPositionFixed.getY(),camPositionFixed.getZ()));
         //Quaternion q = Utils.inverseQuaternion(api.getRobotKinematics().getOrientation());
         //Log.i("StellarCoders",String.format("Rotate Quaternion : %.3fi + %.3fj + %.3fk + %.3f",q.getX(),q.getY(),q.getZ(),q.getW()));
-        Vector3 rotated_v = Utils.target2transpose((ids.get(0) - 1) / 4,camPositionFixed);
-        return rotated_v;
+//        Vector3 rotated_v = Utils.target2transpose((ids.get(0)) / 4,camPositionFixed);
+        return camPositionFixed;
     }
 
     /**
@@ -314,29 +347,23 @@ public class Utils {
      * @return
      */
     public static Vector3 target2transpose(int target,Vector3 v){
-        if(target == 0){
-            //local  xyz -> global xzy
-            //global xyz -> local xzy
-            return new Vector3(v.getX(),v.getZ(),v.getY());
-        }else if(target == 1){
-            //local xyz -> global x -y -z
-            //global x, -y, -z;
-            return new Vector3(v.getX(),-v.getY(),-v.getZ());
-        }else if(target == 2){
-            // local xyz -> global yxz
-            // global y, x, z
-            return new Vector3(v.getY(),v.getX(),v.getZ());
-        }else if(target == 3){
-            //local xyz -> global -yz-x
-            //global xyz -> -z,-x,y
-            return new Vector3(-v.getZ(),-v.getX(),v.getY());
-        }else if(target == 4){// xyz
-            return new Vector3(v.getX(),v.getY(),v.getZ());
-        }else if(target == 5){
-            //local xyz -> yzx
-            //global z,x,y
-            return new Vector3(v.getZ(),v.getX(),v.getY());
-        }
+//        if(target == 0){ // target 1
+//            //local  xyz -> global xzy
+//            //global xyz -> local xzy
+//            return new Vector3(v.getX(),v.getZ(),v.getY());
+//        }else if(target == 1){ // target2
+//            //local xyz -> global x -y -z
+//            //global x, -y, -z;
+//            return new Vector3(v.getX(),-v.getY(),-v.getZ());
+//        }else if(target == 2){ //target3
+//            // local xyz -> global yxz
+//            // global y, x, z
+//            return new Vector3(v.getY(),v.getX(),v.getZ());
+//        }else if(target == 3){ //target 4
+//            //local xyz -> global -yz-x
+//            //global xyz -> -z,-x,y
+//            return new Vector3(-v.getZ(),-v.getX(),v.getY());
+//        }
         return new Vector3(0,0,0);
     }
 

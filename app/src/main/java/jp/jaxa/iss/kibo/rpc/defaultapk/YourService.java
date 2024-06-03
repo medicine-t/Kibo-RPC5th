@@ -12,6 +12,7 @@ import com.stellarcoders.utils.Vector3;
 
 import android.annotation.SuppressLint;
 import android.util.Log;
+import android.util.Pair;
 
 import org.opencv.core.Mat;
 
@@ -43,9 +44,14 @@ public class YourService extends KiboRpcService {
         ConstQuaternions quaternions = new ConstQuaternions();
         Thread thread = new Thread(() -> {
             //TODO: 移動順の最適化
-            for (int i = 0; i < 4; i++) {
-                int index = i;
-                moveDijkstra(pointData.points.get(index), quaternions.points.get(index));
+            for (int index = 0; index < pointData.movePlan.size(); index++) {
+                moveDijkstra(pointData.movePlan.get(index), quaternions.points.get(index));
+            }
+
+            try {
+                Thread.sleep(2000);
+            } catch (InterruptedException e){
+                // none
             }
         });
         thread.start();
@@ -59,14 +65,30 @@ public class YourService extends KiboRpcService {
         HashMap<String,ArrayList<Integer>> detectionResult = new HashMap<>();
 
         while (thread.isAlive()) {
-            List<Mat> fields = imageProcessor.extractTargetField(api);
-            for (Mat field : fields){
-                if(cnt % 10 == 0)api.saveMatImage(field, String.format("ExtractImage_%d.png",cnt));
+            List<Pair<Integer,Mat>> fields = imageProcessor.extractTargetField(api);
+            List<Pair<Integer,Mat>> backField = imageProcessor.extractTargetField(api,true);
+            fields.addAll(backField);
+            for (Pair<Integer,Mat> p : fields){
+                Integer id = p.first;
+                Mat field = p.second;
+
+                // save image for debugging
+                if(cnt % 10 == 0) {
+//                    api.saveMatImage(api.getMatNavCam(), String.format("distorted_Image_%d.png",cnt));
+//                    api.saveMatImage(Utils.calibratedExtNavCam(api), String.format("undistorted_Image_%d.png",cnt));
+                    api.saveMatImage(field, String.format("ExtractImage_%d.png", cnt));
+                }
                 HashMap<String, Integer> result = imageProcessor.detectItems(field);
-                List<Integer> ids = Utils.searchMarker(field);
+                List<Integer> ids = new ArrayList<Integer>(){
+                    {
+                        add(id);
+                    }
+                };
+                Log.i("StellarCoders",String.format("ids: %s",ids));
                 int labelCount = result.keySet().size();
                 if (labelCount == 1 && ids.size() == 1){
                     for(Map.Entry<String,Integer> entry : result.entrySet()) {
+                        if (ids.get(0) < 100 || ids.get(0) > 104)continue;
                         itemMapping.put(ids.get(0) - 100, entry.getKey());
                         if(ids.get(0) - 100 != 0) {
                             keyMapping.put(entry.getKey(),ids.get(0) - 100);
@@ -87,7 +109,6 @@ public class YourService extends KiboRpcService {
             int mode = Utils.getMode(entry.getValue());
             api.setAreaInfo(id,entry.getKey(), mode);
         }
-        if(thread.isAlive()) ;thread.interrupt();
         // 報告
         Thread moveToAstronaut = new Thread(() -> {
             moveDijkstra(pointData.goal, quaternions.goal);
@@ -101,11 +122,18 @@ public class YourService extends KiboRpcService {
         moveToAstronaut.start();
         boolean alive = true;
         while (moveToAstronaut.isAlive()){
-            List<Mat> fields = imageProcessor.extractTargetField(api);
-            for (Mat field : fields){
+            List<Pair<Integer,Mat>> fields = imageProcessor.extractTargetField(api);
+            for (Pair<Integer,Mat> p : fields){
+                Integer id = p.first;
+                Mat field = p.second;
                 api.saveMatImage(field, String.format("ExtractImage_%d.png",cnt));
                 HashMap<String, Integer> result = imageProcessor.detectItems(field);
-                List<Integer> ids = Utils.searchMarker(field);
+                List<Integer> ids = new ArrayList<Integer>(){
+                    {
+                        add(id);
+                    }
+                };
+
                 int labelCount = result.keySet().size();
                 if (labelCount == 1 && ids.size() == 1){
                     for(Map.Entry<String,Integer> entry : result.entrySet()) {
@@ -139,7 +167,14 @@ public class YourService extends KiboRpcService {
             //Point currentPosition = api.getRobotKinematics().getPosition();
             Log.i("StellarCoders",String.format("relative %.3f, %.3f, %.3f",rel.getX(),rel.getY(),rel.getZ()));
             if (rel.getX() * rel.getX() + rel.getY() * rel.getY() + rel.getZ() * rel.getZ() > 0.01){
-                api.relativeMoveTo(new Point(rel.getX(),rel.getY(),rel.getZ()),quaternions.points.get(targetIndex),true);
+                Point currentPosition = api.getRobotKinematics().getPosition();
+                Point destination = new Point(
+                        currentPosition.getX() + rel.getX(),
+                        currentPosition.getY() + rel.getY(),
+                        currentPosition.getZ() + rel.getZ())
+                        ;
+//                api.relativeMoveTo(new Point(rel.getX(),rel.getY(),rel.getZ()),quaternions.points.get(targetIndex),true);
+                moveDijkstra(destination,quaternions.points.get(targetIndex));
             }
 
         }
