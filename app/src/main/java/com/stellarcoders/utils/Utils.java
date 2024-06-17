@@ -10,7 +10,10 @@ import org.opencv.aruco.Dictionary;
 import org.opencv.calib3d.Calib3d;
 import org.opencv.core.CvType;
 import org.opencv.core.Mat;
+import org.opencv.core.MatOfDouble;
 import org.opencv.core.MatOfInt;
+import org.opencv.core.MatOfPoint2f;
+import org.opencv.core.MatOfPoint3f;
 import org.opencv.core.Size;
 import org.opencv.imgproc.Imgproc;
 
@@ -163,18 +166,18 @@ public class Utils {
     }
 
     // 最頻値を取得するメソッド
-    public static Integer getMode(ArrayList<Integer> list) {
-        HashMap<Integer, Integer> frequencyMap = new HashMap<>();
+    public static <T> T getMode(ArrayList<T> list) {
+        HashMap<T, Integer> frequencyMap = new HashMap<>();
 
         // 各要素の出現回数をカウント
-        for (Integer num : list) {
-            frequencyMap.put(num, frequencyMap.getOrDefault(num, 0) + 1);
+        for (T key : list) {
+            frequencyMap.put(key, frequencyMap.getOrDefault(key, 0) + 1);
         }
 
         // 最頻値を決定
-        Integer mode = null;
+        T mode = null;
         int maxCount = -1;
-        for (Map.Entry<Integer, Integer> entry : frequencyMap.entrySet()) {
+        for (Map.Entry<T, Integer> entry : frequencyMap.entrySet()) {
             if (entry.getValue() > maxCount) {
                 maxCount = entry.getValue();
                 mode = entry.getKey();
@@ -222,11 +225,10 @@ public class Utils {
     public static Vector3 getDiffFromCam(KiboRpcApi api,int targetId){
         Log.i("StellarCoders::getDiffCam","called");
         double[][] biasMarker = {
-                {-0.1,+0.0375,0},
-                {0.1,+0.0375,0},
-                {0.1,-0.0375,0},
-                {-0.1,-0.0375,0},
+                {(3.75 - 13.5) / 100, (3.75 - 7.5) / 100, 0},
         };
+        Mat bias = new Mat(1, 1, CvType.CV_32FC3);
+        bias.put(0,0,new float[]{(float) ((3.75 - 13.5) / 100), (float) (3.75 - 7.5) / 100, 0});
 
         ConstQuaternions cq = new ConstQuaternions();
         double[][] camStatistics = api.getNavCamIntrinsics();
@@ -268,13 +270,9 @@ public class Utils {
             relationalTarget = tvecs.get(i,0);
             //TODO: ここの座標がシミュレーターから推察できる結果とズレているので調査
             Log.i("StellarCoders",String.format("UnBiased %s", Arrays.toString(relationalTarget)));
-            relationalTarget[0] += biasMarker[0][0];
-            relationalTarget[1] += biasMarker[0][1];
-            relationalTarget[2] += biasMarker[0][2];
-            Log.i("StellarCoders",String.format("Biased %s", Arrays.toString(relationalTarget)));
-            target = target.add(new Vector3(relationalTarget[0],(relationalTarget[1]),0));
+            target = target.add(new Vector3(relationalTarget[0],(relationalTarget[1]),Math.max(relationalTarget[2] - 0.8,0)));
         }
-        Vector3 v = target.prod(1.0 / rvecs.height());
+        Vector3 v = target;
         Log.i("StellarCoders",String.format("Average diffs : %.3f %.3f %.3f",v.getX(),v.getY(),v.getZ()));
 
         double nx = v.getX();
@@ -289,28 +287,26 @@ public class Utils {
         //if(0.01 * 0.01 <= nx * nx + ny * ny && nx * nx + ny * ny <= minimum_move * minimum_move){
            //nz = Math.sqrt(Math.max(0,0.05 * 0.05 - nx * nx - ny * ny));
         //}
-        Vector3 camPositionFixed = new Vector3(nx,ny,nz);
-        //camPositionFixed = camPositionFixed.add(Utils.center2laser);
-        Log.i("StellarCoders",String.format("Un-Rotated Coordinate : %.3f %.3f %.3f",camPositionFixed.getX(),camPositionFixed.getY(),camPositionFixed.getZ()));
-        //Quaternion q = Utils.inverseQuaternion(api.getRobotKinematics().getOrientation());
+        Vector3 camPositionFixed = new Vector3(nx,ny,nz);//.rotate(api.getRobotKinematics().getOrientation());
+        Log.i("StellarCoders",String.format("Rotated Coordinate : %.3f %.3f %.3f",camPositionFixed.getX(),camPositionFixed.getY(),camPositionFixed.getZ()));
         //Log.i("StellarCoders",String.format("Rotate Quaternion : %.3fi + %.3fj + %.3fk + %.3f",q.getX(),q.getY(),q.getZ(),q.getW()));
-//        Vector3 rotated_v = Utils.target2transpose((ids.get(0)) / 4,camPositionFixed);
-        return camPositionFixed;
+        Vector3 rotated_v = Utils.target2transpose(ids.get(0),camPositionFixed);
+        return rotated_v;
     }
 
     /**
      * qp
-     * @param p
-     * @param q
+     * @param q1
+     * @param q2
      * @return
-     * https://qiita.com/drken/items/0639cf34cce14e8d58a5#1-4-%E3%82%AF%E3%82%A9%E3%83%BC%E3%82%BF%E3%83%8B%E3%82%AA%E3%83%B3%E3%81%AE%E3%81%8B%E3%81%91%E7%AE%97
+     * <a href="https://qiita.com/drken/items/0639cf34cce14e8d58a5#1-4-%E3%82%AF%E3%82%A9%E3%83%BC%E3%82%BF%E3%83%8B%E3%82%AA%E3%83%B3%E3%81%AE%E3%81%8B%E3%81%91%E7%AE%97">...</a>
      */
-    public static Quaternion quaternionProd(Quaternion q,Quaternion p){
+    public static Quaternion quaternionProd(Quaternion q1,Quaternion q2){
         return new Quaternion(
-                q.getW() * p.getX() - q.getZ() * p.getY() + q.getY() * p.getZ() + q.getX() * p.getW(),
-                q.getZ() * p.getX() + q.getW() * p.getY() - q.getX() * p.getZ() + q.getY() * p.getW(),
-                -1 * q.getY() * p.getX() + q.getX() * p.getY() + q.getW() * p.getZ() + q.getZ() * p.getW(),
-                -1 * q.getX() * p.getX() - q.getY() * p.getY() - q.getZ() * p.getZ() + q.getW() * p.getW()
+                q1.getW() * q2.getX() + q1.getX() * q2.getW() + q1.getY() * q2.getZ() - q1.getZ() * q2.getY(),
+                q1.getW() * q2.getY() - q1.getX() * q2.getZ() + q1.getY() * q2.getW() + q1.getZ() * q2.getX(),
+                q1.getW() * q2.getZ() + q1.getX() * q2.getY() - q1.getY() * q2.getX() + q1.getZ() * q2.getW(),
+                q1.getW() * q2.getW() - q1.getX() * q2.getX() - q1.getY() * q2.getY() - q1.getZ() * q2.getZ()
                 );
     }
 
@@ -347,23 +343,23 @@ public class Utils {
      * @return
      */
     public static Vector3 target2transpose(int target,Vector3 v){
-//        if(target == 0){ // target 1
-//            //local  xyz -> global xzy
-//            //global xyz -> local xzy
-//            return new Vector3(v.getX(),v.getZ(),v.getY());
-//        }else if(target == 1){ // target2
-//            //local xyz -> global x -y -z
-//            //global x, -y, -z;
-//            return new Vector3(v.getX(),-v.getY(),-v.getZ());
-//        }else if(target == 2){ //target3
-//            // local xyz -> global yxz
-//            // global y, x, z
-//            return new Vector3(v.getY(),v.getX(),v.getZ());
-//        }else if(target == 3){ //target 4
-//            //local xyz -> global -yz-x
-//            //global xyz -> -z,-x,y
-//            return new Vector3(-v.getZ(),-v.getX(),v.getY());
-//        }
+        if(target == 0){ // target 1
+            //local  xyz -> global xzy
+            //global xyz -> local xzy
+            return new Vector3(v.getX(),v.getZ(),v.getY());
+        }else if(target == 1){ // target2
+            //local xyz -> global x -y -z
+            //global x, -y, -z;
+            return new Vector3(v.getX(),-v.getY(),-v.getZ());
+        }else if(target == 2){ //target3
+            // local xyz -> global x -y -z
+            // global y, x, z
+            return new Vector3(v.getX(),-v.getY(),-v.getZ());
+        }else if(target == 3){ //target 4
+            //local xyz -> global -yz-x
+            //global xyz -> -z,-x,y
+            return new Vector3(-v.getZ(),-v.getX(),v.getY()); //実験で調整
+        }
         return new Vector3(0,0,0);
     }
 
